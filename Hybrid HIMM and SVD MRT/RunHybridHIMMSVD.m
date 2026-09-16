@@ -42,7 +42,7 @@
 clear all; close all; clc;
 
 % Add the software (HIMM algorithm code and ISMRM toolbox) to the directory
-addpath(genpath('.\Code\Hybrid HIMM and SVD MRT\Multi-echo GRE - Hyrbid HIMM and SVD'))
+addpath(genpath('.\Code\MR_Thermometry_HIMMmotion\Hybrid HIMM and SVD MRT\HIMMmotion'))
 addpath(genpath('.\Code\ISMRM Water Fat Toolbox')) % ISMRM fat/water toolbox
 
 
