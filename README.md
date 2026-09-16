@@ -5,6 +5,14 @@
 #### Computational Imaging Group for MRI Therapy & Diagnostics, University Medical Center Utrecht
 ***
 
+### Requirements
+The code makes use of packages published by others. Please install the following:
+- ISMRM fat/water toolbox: [https://www.ismrm.org/workshops/FatWater12/data.htm](https://www.ismrm.org/workshops/FatWater12/data.htm)
+- ROMEO phase unwrapping: [https://github.com/korbinian90/ROMEO](https://github.com/korbinian90/ROMEO)
+
+
+***
+
 ### Overview
 This code repository implements an algorithm script to separate changes in phase into temperature, B0 field drift, head motion, and respiratory motion. 
 Unfortunately, head motion results in additional fluctuations in phase, which will therefore also affect the proton resonance frequency shift signal.
