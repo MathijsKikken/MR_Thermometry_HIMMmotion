@@ -1,0 +1,242 @@
+function [skullMask, bodyMask, brainMask] = segmentBrainRadial(I, body_mask_mGRE)
+%function [skullMask, body_mask, brainMask] = segmentBrainRadial(I, body_mask_mGRE)
+% segmentBrainRadial: function to create the masks used in the HIMMmotion algorithm
+%
+% Creator: Mathijs Kikken (University Medical Center Utrecht)
+% Do not reproduce, distribute, or modify without proper citation according
+% to license file
+%
+% Inputs:
+%   I:                  gradient echo scan of transverse slice
+%   body_mask_mGRE:     initial body mask
+%                       
+% Output: 
+%   mask_F:             fat mask
+%   body_mask:          mask of the regions that have tissues
+%   brain_mask:         brain mask
+%
+% Requires Image Processing Toolbox.
+
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    % Identify region that can be seen as being human body
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+    body_mask = body_mask_mGRE;
+
+    % ----------------------------
+    % 1) Normalize and smooth
+    % ----------------------------
+    I0 = double(abs(I(:,:,1)));
+    I0 = I0 - min(I0(:));
+    if max(I0(:)) > 0
+        I0 = I0 / max(I0(:));
+    end
+
+    % Slight smoothing to stabilize radial profiles
+    Is = imgaussfilt(I0, 1.0);
+
+    % ----------------------------
+    % 2) Whole head mask
+    % ----------------------------
+    t = graythresh(Is);
+    headMask = Is > t * 0.7;   % relaxed threshold helps retain weak head edges
+
+    headMask = imclose(headMask, strel('disk', 3));
+    headMask = imfill(headMask, 'holes');
+    headMask = bwareaopen(headMask, 200);
+    headMask = largestComponent(headMask);
+
+    % Optional extra closing for broken outer skull
+    headMask = imclose(headMask, strel('disk', 5));
+    headMask = imfill(headMask, 'holes');
+    headMask = largestComponent(headMask);
+
+    % ----------------------------
+    % 3) Estimate center of head
+    % ----------------------------
+    stats = regionprops(headMask, 'Centroid', 'EquivDiameter');
+    c = stats.Centroid;   % [x y]
+    cx = c(1);
+    cy = c(2);
+    headRadius = stats.EquivDiameter / 2;
+
+    % ----------------------------
+    % 4) Radial search parameters
+    % ----------------------------
+    nAngles = 360;
+    theta = linspace(0, 2*pi, nAngles + 1);
+    theta(end) = [];
+
+    % Sample far enough to cross entire head
+    maxR = ceil(1.2 * headRadius);
+
+    % Search inward from head boundary for the dark gap
+    % These values are relative to head size and work reasonably well.
+    inwardMin = max(4, round(0.10 * headRadius));
+    inwardMax = max(10, round(0.25 * headRadius));
+
+    brainR = nan(1, nAngles);
+    headR  = nan(1, nAngles);
+
+    % ----------------------------
+    % 5) For each angle:
+    %    - find head boundary radius
+    %    - search just inside it for dark minimum
+    % ----------------------------
+    for k = 1:nAngles
+        th = theta(k);
+        r = 0:maxR;
+
+        x = cx + r * cos(th);
+        y = cy + r * sin(th);
+
+        % Sample image and head mask along ray
+        profileI = interp2(Is, x, y, 'linear', 0);
+        profileM = interp2(double(headMask), x, y, 'nearest', 0) > 0.5;
+
+        % Last point still inside head = outer head boundary along this ray
+        idxHead = find(profileM, 1, 'last');
+        if isempty(idxHead) || idxHead < inwardMin + 3
+            continue;
+        end
+        headR(k) = r(idxHead);
+
+        % Search window for dark gap just inside outer boundary
+        i2 = idxHead - inwardMin;
+        i1 = max(2, idxHead - inwardMax);
+
+        if i2 <= i1
+            continue;
+        end
+
+        seg = profileI(i1:i2);
+
+        % Smooth 1D profile slightly
+        seg = smoothdata(seg, 'gaussian', 7);
+
+        % Pick darkest point in search band
+        [~, relMin] = min(seg);
+        idxGap = i1 + relMin - 1;
+
+        % Small refinement:
+        % prefer the first local minimum near this point if available
+        localIdx = localMinimumNear(profileI, idxGap, max(i1, idxGap-3), min(i2, idxGap+3));
+        if ~isempty(localIdx)
+            idxGap = localIdx;
+        end
+
+        brainR(k) = r(idxGap);
+    end
+
+    % ----------------------------
+    % 6) Fill missing radii and smooth contour
+    % ----------------------------
+    brainR = fillmissingCircular(brainR);
+    headR  = fillmissingCircular(headR);
+
+    % Keep brain boundary safely inside head boundary
+    brainR = min(brainR, headR - 0);
+    brainR(brainR < 1) = 1;
+
+    % Smooth across angle to remove jaggedness
+    brainR = smoothCircular(brainR, 21);
+
+    % Optional safety shrink by a few pixels
+    brainR = brainR - 0;
+    brainR(brainR < 1) = 1;
+
+    % ----------------------------
+    % 7) Convert contour to mask
+    % ----------------------------
+    xb = cx + brainR .* cos(theta);
+    yb = cy + brainR .* sin(theta);
+
+    brainMask = poly2mask(xb, yb, size(I,1), size(I,2));
+    brainMask = brainMask & headMask;
+
+    % Final cleanup
+    brainMask = imfill(brainMask, 'holes');
+    brainMask = imopen(brainMask, strel('disk', 2));
+    brainMask = imclose(brainMask, strel('disk', 4));
+    brainMask = largestComponent(brainMask);
+
+    skullGapBoundary = [xb(:), yb(:)];
+
+    % ----------------------------
+    % Debug
+    % ----------------------------
+    dbg.I0 = I0;
+    dbg.Is = Is;
+    dbg.center = [cx cy];
+    dbg.headRadius = headRadius;
+    dbg.theta = theta;
+    dbg.headR = headR;
+    dbg.brainR = brainR;
+
+    %bodyMask = body_mask;
+    %skullMask = bodyMask - brainMask;
+    %skullMask(skullMask < 0) = 0;
+    bodyMask = brainMask;
+    brainMask = imerode(bodyMask,strel('disk', 5));
+    skullMask = bodyMask - brainMask;
+    skullMask = skullMask.*body_mask;
+end
+
+
+function BW = largestComponent(BW)
+    CC = bwconncomp(BW);
+    if CC.NumObjects == 0
+        BW = false(size(BW));
+        return;
+    end
+    n = cellfun(@numel, CC.PixelIdxList);
+    [~, idx] = max(n);
+    BW2 = false(size(BW));
+    BW2(CC.PixelIdxList{idx}) = true;
+    BW = BW2;
+end
+
+function idx = localMinimumNear(p, idx0, i1, i2)
+% Return a local minimum near idx0 if one exists
+    idx = [];
+    for k = max(i1+1, idx0-2):min(i2-1, idx0+2)
+        if p(k) <= p(k-1) && p(k) <= p(k+1)
+            idx = k;
+            return;
+        end
+    end
+end
+
+function y = smoothCircular(x, w)
+% Circular moving average smoothing
+    if mod(w,2) == 0
+        w = w + 1;
+    end
+    h = ones(1,w)/w;
+    pad = floor(w/2);
+    xp = [x(end-pad+1:end), x, x(1:pad)];
+    yp = conv(xp, h, 'same');
+    y = yp(pad+1:pad+numel(x));
+end
+
+function x = fillmissingCircular(x)
+% Fill NaNs in a circular 1D signal by linear interpolation
+    n = numel(x);
+    good = ~isnan(x);
+    if all(good)
+        return;
+    end
+    if ~any(good)
+        x(:) = 1;
+        return;
+    end
+
+    xi = 1:n;
+    x2 = [x, x, x];
+    xi2 = [xi, xi+n, xi+2*n];
+    good2 = ~isnan(x2);
+
+    mid = xi + n;
+    xFilled = interp1(xi2(good2), x2(good2), mid, 'linear');
+    x = xFilled;
+end
