@@ -41,7 +41,7 @@ The previously proposed HIMM MRT method is therefore extended with a motion-comp
 
 - First, the algorithm determines which of the reference dynamics in the library is most similar to the dynamic image being evaluated.
 
-- Then, the motion-induced B0 field is estimated based on the measured motion parameters and the field disturbances originating from head motion. These field disturbances are fitted from pre-scans in which volunteers are instructed to deliberately move their head in specified directions. More details on this fit are provided in the folder "GetMotionFields".
+- Then, the motion-induced B0 field is estimated based on the measured motion parameters and the field disturbances originating from head motion. These field disturbances are fitted from pre-scans in which volunteers are instructed to deliberately move their head in specified directions. More details on this fit are provided in the folder "GetMotionFields". Note that the GetMotionFields algorithm requires a phase unwrapping algorithm to reconstuct the motion fields. For this, the ROMEO algorithm has been used (this can be obtained from https://github.com/korbinian90/ROMEO).
 
 - Subsequently, an initial estimate of the B0 field drift is acquired through near-harmonic 2D reconstruction. 
 The skull is insensitive to temperature-induced phase changes and can therefore be used to provide a good initial estimate of the B0 field drift in the transverse plane (because the skull completely surrounds the brain in this plane).
